@@ -106,7 +106,9 @@ For complex applications, consider a hybrid approach:
 - **Tiered deployment:** AWS OpenSearch Serverless for development/testing environments with AWS OpenSearch Managed for production.
 - **Domain-specific optimization:** Different solutions for different data domains based on query patterns and performance requirements.
 
-## Example: Updating a Document by ID in OpenSearch Serverless
+## Code Examples
+
+### Example 1: Updating a Document by ID in OpenSearch Serverless (REST API)
 
 ```
 POST /vector-index/_update/123 
@@ -125,9 +127,206 @@ Content-Type: application/json
 * **Request Body**:
    * The `doc` object contains the fields you want to update. In this case, it's updating the `description` field.
 
+### Example 2: Working with AWS OpenSearch in Python
+
+#### Installation
+
+```bash
+pip install opensearch-py boto3 requests-aws4auth
+```
+
+#### Basic Connection Setup
+
+```python
+import boto3
+from opensearchpy import OpenSearch, RequestsHttpConnection
+from requests_aws4auth import AWS4Auth
+
+# AWS credentials and region
+region = 'us-east-1'
+service = 'aoss'  # 'es' for OpenSearch Managed, 'aoss' for OpenSearch Serverless
+credentials = boto3.Session().get_credentials()
+awsauth = AWS4Auth(
+    credentials.access_key,
+    credentials.secret_key,
+    region,
+    service,
+    session_token=credentials.token
+)
+
+# For OpenSearch Serverless
+host = 'your-collection-endpoint.us-east-1.aoss.amazonaws.com'  # Replace with your endpoint
+
+# For OpenSearch Managed
+# host = 'your-domain-endpoint.us-east-1.es.amazonaws.com'
+
+client = OpenSearch(
+    hosts=[{'host': host, 'port': 443}],
+    http_auth=awsauth,
+    use_ssl=True,
+    verify_certs=True,
+    connection_class=RequestsHttpConnection,
+    timeout=30
+)
+```
+
+#### Example 3: Indexing Documents with Vector Embeddings
+
+```python
+import json
+import numpy as np
+
+def index_document_with_vector(client, index_name, document_id, document_text, vector_field="embedding"):
+    """
+    Index a document with vector embedding in OpenSearch
+    """
+    # In a real application, you would use a proper embedding model
+    # This is just a simplified example using random vector
+    embedding_dimension = 384  # Example dimension for embeddings
+    embedding = list(np.random.rand(embedding_dimension))  # Random vector
+    
+    document = {
+        "text": document_text,
+        vector_field: embedding
+    }
+    
+    response = client.index(
+        index=index_name,
+        body=document,
+        id=document_id,
+        refresh=True  # Make document immediately searchable
+    )
+    
+    return response
+
+# Example usage
+index_name = "product-catalog"
+document_id = "123"
+document_text = "Wireless noise-cancelling headphones with 30-hour battery life"
+
+response = index_document_with_vector(client, index_name, document_id, document_text)
+print(json.dumps(response, indent=2))
+```
+
+#### Example 4: Updating a Document
+
+```python
+def update_document(client, index_name, document_id, update_fields):
+    """
+    Update specific fields of a document in OpenSearch
+    """
+    update_body = {
+        "doc": update_fields
+    }
+    
+    response = client.update(
+        index=index_name,
+        body=update_body,
+        id=document_id,
+        refresh=True
+    )
+    
+    return response
+
+# Example usage
+index_name = "product-catalog"
+document_id = "123"
+update_fields = {
+    "description": "Updated premium wireless headphones with enhanced noise cancellation",
+    "price": 249.99,
+    "in_stock": True
+}
+
+response = update_document(client, index_name, document_id, update_fields)
+print(json.dumps(response, indent=2))
+```
+
+#### Example 5: Vector Search Query
+
+```python
+def vector_search(client, index_name, query_vector, vector_field="embedding", size=5):
+    """
+    Perform vector similarity search in OpenSearch
+    """
+    query = {
+        "size": size,
+        "query": {
+            "knn": {
+                vector_field: {
+                    "vector": query_vector,
+                    "k": size
+                }
+            }
+        }
+    }
+    
+    response = client.search(
+        body=query,
+        index=index_name
+    )
+    
+    return response
+
+# Example usage
+# In a real app, this would be your query embedding from the same model used for indexing
+query_vector = list(np.random.rand(384))  # Random example vector
+
+response = vector_search(client, "product-catalog", query_vector, size=3)
+print(json.dumps(response, indent=2))
+
+# Processing results
+hits = response["hits"]["hits"]
+for hit in hits:
+    score = hit["_score"]
+    source = hit["_source"]
+    print(f"Score: {score}, Document: {source['text']}")
+```
+
+#### Example 6: Hybrid Search (Text + Vector)
+
+```python
+def hybrid_search(client, index_name, text_query, query_vector, vector_field="embedding", size=5):
+    """
+    Perform hybrid search combining text and vector similarity in OpenSearch
+    """
+    query = {
+        "size": size,
+        "query": {
+            "script_score": {
+                "query": {
+                    "match": {
+                        "text": text_query
+                    }
+                },
+                "script": {
+                    "source": "cosineSimilarity(params.vector, doc['" + vector_field + "']) + 1.0",
+                    "params": {
+                        "vector": query_vector
+                    }
+                }
+            }
+        }
+    }
+    
+    response = client.search(
+        body=query,
+        index=index_name
+    )
+    
+    return response
+
+# Example usage
+text_query = "wireless headphones"
+query_vector = list(np.random.rand(384))  # Random example vector
+
+response = hybrid_search(client, "product-catalog", text_query, query_vector)
+```
+
 **Notes**
 1. **Document ID**: For vector search collections, OpenSearch Serverless generates IDs automatically unless you explicitly store and manage them separately (e.g., in DynamoDB) when indexing documents.
 2. **Limitations**: Upserts (insert if not exists, otherwise update) are not supported for vector search collections. You must ensure the document exists before attempting an update.
+3. **Vector Dimensions**: The dimension of your vectors should be consistent with your OpenSearch configuration and the embedding model you're using.
+4. **Authentication**: When working with AWS OpenSearch, always ensure proper IAM permissions are set up.
 
 ---
 
